@@ -359,6 +359,13 @@ def main():
     ap.add_argument("--no-assistant", action="store_true", help="skip the API / bot / watchdog / backups")
     a = ap.parse_args()
 
+    if sys.stdin.isatty():
+        print("\n\033[1;36m==========  VPN Kit  ==========\033[0m\n"
+              "نصب 3x-ui + VLESS Reality + دستیار + API اندروید. سه چیز لازم است:\n"
+              "  ۱) دامنهٔ مستقیم (Cloudflare «DNS only»)   مثل  cdn.example.com\n"
+              "  ۲) دامنهٔ اشتراک (Cloudflare «Proxied»)    مثل  sub.example.com\n"
+              "  ۳) توکن Cloudflare با دسترسی Zone:DNS:Edit\n"
+              "نیازی به نام‌کاربری یا رمز پنل نیست؛ همه‌چیز خودکار ساخته می‌شود.\n")
     preflight()
     swap_bbr()
     ip = public_ip()
@@ -373,6 +380,8 @@ def main():
             sub_domain = a.sub_domain or ask("Subscription domain (proxied, e.g. sub.example.com)",
                                              "sub." + ".".join(domain.split(".")[1:]) if domain.count(".") >= 2 else "sub." + domain)
             cf_token = a.cf_token or ask("Cloudflare API token (Zone:DNS:Edit)", secret=True, required=True)
+    if sys.stdin.isatty() and a.client == "admin" and not a.domain:
+        a.client = ask("Name of the first user", a.client) or a.client
     tg_token = a.tg_token if a.tg_token is not None else ("" if a.ip_only else ask("Telegram bot token from @BotFather (optional, Enter to skip)", secret=True))
 
     panel_info = install_xui(a.force_new)
