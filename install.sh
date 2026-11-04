@@ -41,4 +41,4 @@ ln -sf "$KIT/vpnkit.sh" /usr/local/bin/vpnkit
 
 python3 "$KIT/installer.py" "$@"
 echo
-echo "برای مدیریت سرور (اطلاعات اتصال، کاربران، وضعیت، بکاپ، به‌روزرسانی) بنویس:  vpnkit"
+echo "To manage this server (connection info, users, status, backup, update) type:  vpnkit"

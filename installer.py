@@ -361,11 +361,11 @@ def main():
 
     if sys.stdin.isatty():
         print("\n\033[1;36m==========  VPN Kit  ==========\033[0m\n"
-              "نصب 3x-ui + VLESS Reality + دستیار + API اندروید. سه چیز لازم است:\n"
-              "  ۱) دامنهٔ مستقیم (Cloudflare «DNS only»)   مثل  cdn.example.com\n"
-              "  ۲) دامنهٔ اشتراک (Cloudflare «Proxied»)    مثل  sub.example.com\n"
-              "  ۳) توکن Cloudflare با دسترسی Zone:DNS:Edit\n"
-              "نیازی به نام‌کاربری یا رمز پنل نیست؛ همه‌چیز خودکار ساخته می‌شود.\n")
+              "Installs 3x-ui + VLESS Reality + assistant API for the Android app. You need three things:\n"
+              "  1) a direct domain   (Cloudflare 'DNS only')   e.g. cdn.example.com\n"
+              "  2) a sub domain      (Cloudflare 'Proxied')    e.g. sub.example.com\n"
+              "  3) a Cloudflare API token with Zone:DNS:Edit\n"
+              "No panel username or password is needed; everything is generated automatically.\n")
     preflight()
     swap_bbr()
     ip = public_ip()
