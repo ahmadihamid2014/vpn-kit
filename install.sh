@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # VPN Kit - one-command installer (Ubuntu 22.04/24.04 or Debian 12, run as root).
-#   bash <(curl -Ls https://raw.githubusercontent.com/OWNER/REPO/main/install.sh)
+#   bash <(curl -Ls https://raw.githubusercontent.com/ahmadihamid2014/vpn-kit/main/install.sh)
 # Any installer.py option can be appended, e.g.  --domain cdn.example.com --cf-token XXXX
 set -euo pipefail
-REPO="${KIT_REPO:-OWNER/REPO}"
+REPO="${KIT_REPO:-ahmadihamid2014/vpn-kit}"
 BRANCH="${KIT_BRANCH:-main}"
 [ "$(id -u)" = "0" ] || { echo "Run as root (sudo -i)"; exit 1; }
 export DEBIAN_FRONTEND=noninteractive

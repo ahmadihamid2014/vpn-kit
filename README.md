@@ -3,10 +3,10 @@
 نصب یک **سرور VPN شخصی** روی هر سرور اوبونتوی خارج از ایران، با **VLESS + Reality**، پنل مدیریت کاربر، لینک اشتراک خودکار، ربات تلگرام، نگهبان ضدفیلتر، پشتیبان رمزگذاری‌شده و **مهاجرت خودکار به سرور جدید**. همهٔ این‌ها فقط با یک دستور.
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/OWNER/REPO/main/install.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/ahmadihamid2014/vpn-kit/main/install.sh)
 ```
 
-> `OWNER/REPO` را با نام‌کاربری و نام مخزن خودت عوض کن (راهنمای بخش «[گذاشتن روی گیت‌هاب](#گذاشتن-روی-گیتهاب)»).
+> اگر این پروژه را فورک کرده‌ای، `ahmadihamid2014/vpn-kit` را با نام‌کاربری و مخزن خودت عوض کن (یا موقع اجرا `KIT_REPO=کاربر/مخزن` بده).
 
 ---
 
@@ -75,7 +75,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/OWNER/REPO/main/install.sh)
 روی سرور تازه، با کاربر root:
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/OWNER/REPO/main/install.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/ahmadihamid2014/vpn-kit/main/install.sh)
 ```
 
 نصب‌کننده این‌ها را می‌پرسد:
@@ -90,7 +90,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/OWNER/REPO/main/install.sh)
 یا همه را یک‌جا بده (بدون پرسش):
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/OWNER/REPO/main/install.sh) \
+bash <(curl -Ls https://raw.githubusercontent.com/ahmadihamid2014/vpn-kit/main/install.sh) \
   --domain cdn.example.com --sub-domain sub.example.com \
   --cf-token XXXXXXXX --tg-token 123456:ABC --client admin
 ```
@@ -273,11 +273,11 @@ cd vpn-kit
 git init -b main
 git add .
 git commit -m "VPN Kit: first release"
-git remote add origin https://github.com/OWNER/REPO.git
+git remote add origin https://github.com/ahmadihamid2014/vpn-kit.git
 git push -u origin main
 ```
 
-بعد از push، در `README.md` و `install.sh` هر `OWNER/REPO` را عوض کن (یا موقع اجرا `KIT_REPO=کاربر/مخزن` بده).
+بعد از push، در `README.md` و `install.sh` نام `ahmadihamid2014/vpn-kit` را با مخزن خودت عوض کن (یا موقع اجرا `KIT_REPO=کاربر/مخزن` بده).
 
 > **قبل از public کردن** بررسی کن هیچ توکن یا رمزی در فایل‌ها نیست: `grep -rniE "token|password|secret" .`. در این مخزن هیچ مقدار واقعی وجود ندارد و همهٔ مقادیر هنگام نصب ساخته می‌شوند.
 
