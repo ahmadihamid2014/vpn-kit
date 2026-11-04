@@ -503,6 +503,10 @@ def daily_backup():
     b = build_bundle()
     sent = tg_send_file(b['path'], '💾 بستهٔ مهاجرت (رمزگذاری‌شده). رمز در برنامه، بخش «سرور یدک».')
     save('/var/lib/hamid-daily.json', {'date': today, 'name': b['name'], 'sent': sent})
+    try:
+        spare_sync()
+    except Exception as e:
+        add_event('spare', 'همگام‌سازی سرور یدک ناموفق بود: ' + str(e)[:120], None, 'warn', True)
     add_event('backup', 'بستهٔ مهاجرت روزانه ساخته شد' + (' و در تلگرام ذخیره شد' if sent else ''), None, 'info', False)
 
 
@@ -583,6 +587,28 @@ def spare_start(host, password):
         save(SPARE_STATE, s)
     threading.Thread(target=run, daemon=True).start()
     return {'ok': True}
+
+
+def spare_sync():
+    """Keep the standby spare current: push a fresh bundle and re-run restore --standby (users, usage, certs)."""
+    st = load(SPARE_STATE, {})
+    if not st.get('ready') or st.get('promoted') or st.get('running'):
+        return {'skipped': True}
+    b = build_bundle()
+    target = f"root@{st['host']}"
+    kw = ['-i', KEYPATH, '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes']
+    x = subprocess.run(['scp', *SSHO, *kw, b['path'], f'{target}:/root/bundle.enc'], capture_output=True, text=True, timeout=300)
+    if x.returncode != 0:
+        raise RuntimeError('sync: scp failed: ' + x.stderr.strip()[-120:])
+    script = ('set -e\ncd /root && rm -rf hamid-bundle\n'
+              f'openssl enc -d -aes-256-cbc -pbkdf2 -pass pass:{_key()} -in bundle.enc | tar xz -C /root\n'
+              'bash /root/hamid-bundle/restore.sh --standby\n')
+    r = subprocess.run(['ssh', *SSHO, *kw, target, 'bash -s'], input=script, capture_output=True, text=True, timeout=1500)
+    if r.returncode != 0 or 'x-ui: active' not in r.stdout:
+        raise RuntimeError('sync failed: ' + (r.stdout + r.stderr)[-200:])
+    st['synced'] = int(time.time())
+    save(SPARE_STATE, st)
+    return {'ok': True, 'synced': st['synced']}
 
 
 def spare_promote():

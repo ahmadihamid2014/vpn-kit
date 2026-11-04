@@ -257,8 +257,12 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, {'status': load(STATUS, {}), 'api': {
                 'verdict': st.get('verdict', 'ok'), 'attempts': st.get('attempts', 0),
                 'last_heal': st.get('last_heal', 0)}, 'server_time': time.time()})
-        if self.path in ('/v1/server', '/v1/inbounds', '/v1/targets', '/v1/dns', '/v1/spare', '/v1/migration/key') or self.path.startswith('/v1/events'):
+        if self.path in ('/v1/info', '/v1/server', '/v1/inbounds', '/v1/targets', '/v1/dns', '/v1/spare', '/v1/migration/key') or self.path.startswith('/v1/events'):
             try:
+                if self.path == '/v1/info':
+                    return self._send(200, {'name': X.CFG.get('name', ''), 'main_sub_url': X.CFG.get('main_sub_url', ''),
+                                            'sub_base': SUB_BASE, 'domains': X.CFG.get('dns_names', []),
+                                            'bot_url': X.CFG.get('bot_url', ''), 'api_version': 2})
                 if self.path == '/v1/server':
                     return self._send(200, {'stats': X.server_stats(), 'inbounds': X.inbounds_info()})
                 if self.path == '/v1/inbounds':
@@ -300,7 +304,7 @@ class H(BaseHTTPRequestHandler):
                                      capture_output=True, text=True, timeout=120).stdout.strip()
                 return self._send(200, {'ok': True, 'out': out[-300:], 'refresh_sub': True})
             if self.path in ('/v1/targets/set', '/v1/dns/update', '/v1/server/restart', '/v1/server/backup',
-                             '/v1/server/cert', '/v1/spare/start', '/v1/spare/promote', '/v1/migration/bundle'):
+                             '/v1/server/cert', '/v1/spare/start', '/v1/spare/promote', '/v1/spare/sync', '/v1/migration/bundle'):
                 try:
                     if self.path == '/v1/targets/set':
                         return self._send(200, X.set_target(body.get('inbound'), body.get('host')))
@@ -314,6 +318,8 @@ class H(BaseHTTPRequestHandler):
                         return self._send(200, X.cert_renew())
                     if self.path == '/v1/spare/start':
                         return self._send(200, X.spare_start(str(body.get('host', '')), str(body.get('password', ''))))
+                    if self.path == '/v1/spare/sync':
+                        return self._send(200, X.spare_sync())
                     if self.path == '/v1/spare/promote':
                         return self._send(200, X.spare_promote())
                     if self.path == '/v1/migration/bundle':

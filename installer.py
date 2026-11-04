@@ -124,6 +124,21 @@ def upsert_a(token, zone, name, ip, proxied):
         cf(token, "POST", f"/zones/{zone}/dns_records", body)
 
 
+def bot_url(tg_token):
+    if not tg_token:
+        return ""
+    try:
+        with urllib.request.urlopen(f"https://api.telegram.org/bot{tg_token}/getMe", timeout=15) as r:
+            return "https://t.me/" + json.load(r)["result"]["username"]
+    except Exception:
+        return ""
+
+
+def connection_string(api, token, name):
+    q = urllib.parse.urlencode({"api": api, "token": token, "name": name}, quote_via=urllib.parse.quote)
+    return "vpnkit://connect?" + q
+
+
 # ------------------------------------------------------------------ steps
 def preflight():
     if os.geteuid() != 0:
@@ -136,7 +151,7 @@ def preflight():
         warn(f"only {mem} MB RAM: 1 GB is recommended")
     say("installing base packages")
     run("DEBIAN_FRONTEND=noninteractive apt-get update -y >/dev/null 2>&1; "
-        "DEBIAN_FRONTEND=noninteractive apt-get install -y curl sqlite3 ufw openssl python3 tar ca-certificates >/dev/null 2>&1")
+        "DEBIAN_FRONTEND=noninteractive apt-get install -y curl sqlite3 ufw openssl python3 tar ca-certificates qrencode >/dev/null 2>&1")
 
 
 def swap_bbr():
@@ -394,7 +409,7 @@ def main():
     if not a.ip_only and not a.no_assistant:
         cfg = {"panel_url": f"https://127.0.0.1:{panel_info['port']}{panel_info['base']}".rstrip("/"), "sub_base": sub_base,
                "main_sub_url": main_sub, "inbound_ids": ids, "zone_id": zone, "dns_names": [domain, sub_domain],
-               "cert_domain": domain, "api_port": 2053}
+               "cert_domain": domain, "api_port": 2053, "name": domain.split(".")[0], "bot_url": bot_url(tg_token)}
         token, pair, key = install_assistant(a, panel_info, cfg, tg_token)
 
     panel_url = f"https://{domain or ip}:{panel_info['port']}{panel_info['base']}"
@@ -407,8 +422,12 @@ def main():
         f"First user       : {a.client}",
         f"Subscription URL : {main_sub}   <- paste into Hiddify / v2rayNG",
     ]
+    conn = ""
     if token:
+        conn = connection_string(f"https://{sub_domain}:2053", token, domain.split(".")[0])
         lines += [f"Assistant API    : https://{sub_domain}:2053   (token: {token})",
+                  f"Android token    : {token}",
+                  f"Connection string: {conn}   <- paste or scan in the Android app",
                   f"Migration key    : {key}   <- keep it OUTSIDE this server"]
     if pair and tg_token:
         lines += [f"Telegram pairing : open your bot and send:  /start {pair}"]
@@ -419,6 +438,9 @@ def main():
         f.write(text)
     os.chmod("/root/vpn-kit-info.txt", 0o600)
     print("\n" + text)
+    if conn:
+        say("scan this QR code in the Android app (or paste the connection string above):")
+        print(out(["qrencode", "-t", "ANSIUTF8", conn]))
     say("saved to /root/vpn-kit-info.txt (readable by root only)")
 
 
