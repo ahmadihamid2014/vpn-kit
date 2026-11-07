@@ -80,6 +80,27 @@ def c_sub(arg):
         return 'تنظیم نشده'
 
 
+@command('announce', 'فرستادن متن به گروه:  /announce متن')
+def c_announce(arg):
+    text = arg.strip()
+    if not text:
+        return 'بعد از دستور، متن را بنویس:  /announce متن'
+    env = read_env()
+    group = env.get('TG_GROUP')
+    if not group:
+        return 'هنوز گروهی ثبت نشده. ربات را خودت به گروه اضافه کن.'
+    try:
+        sent = group_send(env['TG_TOKEN'], group, text)
+    except Exception as e:
+        return f'به گروه نرسید: {e}'
+    try:
+        api(env['TG_TOKEN'], 'pinChatMessage', chat_id=group, message_id=sent['result']['message_id'],
+            disable_notification='true')
+        return 'در گروه فرستاده و سنجاق شد ✅'
+    except Exception:
+        return 'در گروه فرستاده شد ✅ (برای سنجاق، به ربات دسترسی Pin Messages بده)'
+
+
 @command('restart', 'راه‌اندازی دوباره‌ی x-ui (چند ثانیه قطع می‌شود)', dangerous=True)
 def c_restart(arg):
     if arg.strip() != 'تایید' and arg.strip().lower() != 'yes':
@@ -113,6 +134,42 @@ def send(token, chat, text, markup=MENU):
         api(token, 'sendMessage', chat_id=chat, text=text[:3800], reply_markup=markup)
     except Exception:
         pass
+
+
+def group_send(token, group, text):
+    # No reply_markup: the owner's admin keyboard must never appear in the group.
+    return api(token, 'sendMessage', chat_id=group, text=text[:3800])
+
+
+def handle_membership(token, env, update):
+    """Only the owner can register a group, by adding the bot to it himself."""
+    chat = update.get('chat') or {}
+    if chat.get('type') not in ('group', 'supergroup'):
+        return
+    owner = env.get('TG_CHAT', '')
+    if not owner:
+        return
+    group = str(chat.get('id', ''))
+    title = chat.get('title', '')
+    status = (update.get('new_chat_member') or {}).get('status')
+    if status in ('member', 'administrator'):
+        if group == env.get('TG_GROUP'):
+            return
+        if str((update.get('from') or {}).get('id', '')) != owner:
+            send(token, owner, f'کس دیگری مرا به گروه «{title}» اضافه کرد؛ آن را ثبت نکردم.')
+            return
+        env['TG_GROUP'] = group
+        write_env(env)
+        send(token, owner, f'گروه «{title}» ثبت شد ✅ از این به بعد خبرهای اتصال آنجا اعلام می‌شود.\n'
+                           'برای پیام دستی:  /announce متن')
+        try:
+            group_send(token, group, 'سلام، من دستیار حمید هستم. از این به بعد خبرهای اتصال را اینجا اعلام می‌کنم.')
+        except Exception:
+            pass
+    elif status in ('left', 'kicked') and group == env.get('TG_GROUP'):
+        env.pop('TG_GROUP', None)
+        write_env(env)
+        send(token, owner, f'از گروه «{title}» خارج شدم؛ اعلان گروه خاموش شد.')
 
 
 def handle_callback(token, env, cq):
@@ -149,7 +206,15 @@ def main():
             if u.get('callback_query'):
                 handle_callback(token, env, u['callback_query'])
                 continue
+            if u.get('my_chat_member'):
+                handle_membership(token, env, u['my_chat_member'])
+                continue
             m = u.get('message') or {}
+            if m.get('migrate_to_chat_id') and str((m.get('chat') or {}).get('id', '')) == env.get('TG_GROUP'):
+                # Telegram gives a group a new id when it becomes a supergroup.
+                env['TG_GROUP'] = str(m['migrate_to_chat_id'])
+                write_env(env)
+                continue
             text = (m.get('text') or '').strip()
             if text in BUTTONS:
                 text = '/' + BUTTONS[text]
@@ -174,8 +239,9 @@ def main():
             elif chat != owner:
                 continue
             else:
-                cmd, _, arg = text.lstrip('/').partition(' ')
-                cmd = cmd.split('@')[0].lower()
+                parts = text.lstrip('/').split(None, 1)
+                cmd = parts[0].split('@')[0].lower() if parts else ''
+                arg = parts[1] if len(parts) > 1 else ''
                 if cmd not in COMMANDS:
                     reply = 'این دستور را نمی‌شناسم. /help'
                 else:

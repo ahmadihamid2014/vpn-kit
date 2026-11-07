@@ -68,6 +68,7 @@ def decide(report):
     if any_ok:
         if st['verdict'] != 'ok':
             notify('✅ از سمت گوشی دوباره اتصال برقرار است.')
+        X.group_confirmed(now)
         st.update(attempts=0, verdict='ok', alerted=False)
         save(STATE, st)
         return {'verdict': 'ok', 'refresh_sub': st.get('refresh_pending', False), 'attempts': 0}
@@ -86,6 +87,7 @@ def decide(report):
     if st['attempts'] >= 3:
         answer['verdict'] = 'ip_burned_suspected'
         st['verdict'] = 'ip_burned_suspected'
+        X.group_trouble('down', now)
         if not st.get('alerted'):
             st['alerted'] = True
             notify('🚨 سه بار مقصد را عوض کردم و هنوز از ایران وصل نمی‌شود. احتمالاً آی‌پی سرور سوخته؛ سرور جدید لازم است.')
@@ -100,6 +102,7 @@ def decide(report):
                          capture_output=True, text=True, timeout=120).stdout.strip().splitlines()
     st.update(attempts=st['attempts'] + 1, last_heal=now, verdict='blocked', refresh_pending=True)
     save(STATE, st)
+    X.group_trouble('problem', now)
     notify(f"🔄 گوشی گزارش کرد از ایران وصل نمی‌شود؛ مقصدها را عوض کردم (تلاش {st['attempts']} از ۳).\n" + (out[-1] if out else ''))
     answer.update(verdict='blocked', refresh_sub=True, attempts=st['attempts'])
     return answer
@@ -262,7 +265,8 @@ class H(BaseHTTPRequestHandler):
                 if self.path == '/v1/info':
                     return self._send(200, {'name': X.CFG.get('name', ''), 'main_sub_url': X.CFG.get('main_sub_url', ''),
                                             'sub_base': SUB_BASE, 'domains': X.CFG.get('dns_names', []),
-                                            'bot_url': X.CFG.get('bot_url', ''), 'api_version': 2})
+                                            'bot_url': X.CFG.get('bot_url', ''), 'api_version': 3,
+                                            'direct_sub_url': X.direct_sub_url(), 'sub_mode': X.sub_route_state()['mode']})
                 if self.path == '/v1/server':
                     return self._send(200, {'stats': X.server_stats(), 'inbounds': X.inbounds_info()})
                 if self.path == '/v1/inbounds':
@@ -284,6 +288,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, users_list())
             except Exception as e:
                 return self._send(502, {'error': str(e)[:200]})
+        if self.path == '/v1/subroute':
+            return self._send(200, X.sub_route_status())
         if self.path == '/v1/reports':
             return self._send(200, load(REPORTS, [])[-15:])
         self._send(404, {'error': 'not found'})
@@ -299,6 +305,13 @@ class H(BaseHTTPRequestHandler):
         with LOCK:
             if self.path == '/v1/report':
                 return self._send(200, decide(body))
+            if self.path == '/v1/subprobe':
+                return self._send(200, X.sub_route_observe(body))
+            if self.path == '/v1/subroute/set':
+                try:
+                    return self._send(200, X.sub_route_set(str(body.get('mode', '')), 'دستی'))
+                except Exception as e:  # noqa: BLE001
+                    return self._send(502, {'error': str(e)[:200]})
             if self.path == '/v1/heal':
                 out = subprocess.run(['python3', '/usr/local/bin/reality-watchdog.py', '--rotate'],
                                      capture_output=True, text=True, timeout=120).stdout.strip()

@@ -70,6 +70,74 @@ def tg_notify(msg):
         pass
 
 
+# ------------------------------------------------------------------ group announcements
+# Texts must stay free of ports, IPs, domains and subscription URLs: members see them.
+GROUP_STATE = '/var/lib/hamid-group.json'
+ROTATED = '/var/lib/hamid-rotated'
+GROUP_TEXT = {
+    'problem': '⚠️ دستیار حمید: مشکل اتصال پیدا شد و در حال رفع است. لطفاً چند دقیقه صبر کنید.',
+    'fixed': '✅ دستیار حمید: اتصال درست شد و از داخل ایران تست شد.\nلطفاً در برنامه اشتراک را به‌روزرسانی کنید.',
+    'down': '⛔ دستیار حمید: اتصال فعلاً قطع است. پیگیری می‌کنم و خبر می‌دهم.',
+}
+GROUP_GAP = {'problem': 1800, 'fixed': 600, 'down': 1800}  # seconds between two messages of one kind
+ROTATE_GRACE = 30  # a probe younger than this may have started before the switch
+
+
+def _group_post(phase, st, now):
+    """Send one message and record it. On failure the state stays, so the next report retries."""
+    e = read_env(TGENV)
+    if now - st.get('last', {}).get(phase, 0) < GROUP_GAP[phase]:
+        return False
+    try:
+        data = urllib.parse.urlencode({'chat_id': e['TG_GROUP'], 'text': GROUP_TEXT[phase]}).encode()
+        urllib.request.urlopen(f"https://api.telegram.org/bot{e['TG_TOKEN']}/sendMessage", data, timeout=15)
+    except Exception:
+        return False
+    st.setdefault('last', {})[phase] = now
+    st['phase'] = phase
+    return True
+
+
+def group_trouble(phase, now=None):
+    """Announce 'problem' or 'down' once per incident."""
+    e = read_env(TGENV)
+    if not e.get('TG_TOKEN') or not e.get('TG_GROUP'):
+        return False
+    now = now or time.time()
+    st = load(GROUP_STATE, {})
+    if st.get('phase') == phase or (phase == 'problem' and st.get('phase') == 'down'):
+        return False
+    sent = _group_post(phase, st, now)
+    if sent:
+        save(GROUP_STATE, st)
+    return sent
+
+
+def group_confirmed(now=None):
+    """A phone reached the server from Iran: announce if the group was told of trouble or the link changed."""
+    now = now or time.time()
+    st = load(GROUP_STATE, {})
+    try:
+        rotated = float(open(ROTATED).read())
+    except Exception:
+        rotated = 0
+    e = read_env(TGENV)
+    if not e.get('TG_TOKEN') or not e.get('TG_GROUP'):
+        if rotated != st.get('rotated_seen'):  # nobody to tell: do not announce this change later
+            st['rotated_seen'] = rotated
+            save(GROUP_STATE, st)
+        return False
+    if now - rotated < ROTATE_GRACE:
+        return False
+    if st.get('phase') not in ('problem', 'down') and rotated == st.get('rotated_seen', 0):
+        return False
+    sent = _group_post('fixed', st, now)
+    if sent:
+        st['rotated_seen'] = rotated
+        save(GROUP_STATE, st)
+    return sent
+
+
 # ------------------------------------------------------------------ events / alerts
 def add_event(kind, text, key=None, level='info', notify=True):
     """Append once per key (a key is re-armed by clear_key)."""
@@ -636,3 +704,111 @@ def spare_status():
     bl = [f for f in sorted(os.listdir(BUNDLE_DIR)) if f.endswith('.enc')] if os.path.isdir(BUNDLE_DIR) else []
     daily = load('/var/lib/hamid-daily.json', {})
     return {'state': st, 'log': log, 'bundles': len(bl), 'lastBundle': bl[-1] if bl else '', 'daily': daily}
+
+
+# ------------------------------------------------------------------ self-healing subscription route
+# The subscription domain is normally proxied through Cloudflare. From some Iranian networks a few Cloudflare
+# edge addresses never answer, so clients (Happ, v2rayNG...) get "request timed out" at random. The phone app
+# probes the subscription both through the domain as it is now and through the always-direct config domain and
+# reports counts; when the proxied path keeps failing while the direct path works, the record is switched to
+# DNS-only (the URL users already have stays valid). If the direct path later fails, it is switched back.
+SUBROUTE = '/var/lib/hamid-subroute.json'
+SUBROUTE_WINDOW = 3 * 3600
+SUBROUTE_COOLDOWN = 2 * 3600
+
+
+def _sub_host():
+    return urllib.parse.urlparse(CFG.get('sub_base', '')).hostname or ''
+
+
+def direct_host():
+    """The always-DNS-only domain that serves the configs (never the subscription domain itself)."""
+    sub = _sub_host()
+    cd = CFG.get('cert_domain', '')
+    if cd and cd != sub:
+        return cd
+    for n in DNS_NAMES:
+        if n != sub:
+            return n
+    return ''
+
+
+def direct_sub_url():
+    u = CFG.get('main_sub_url', '')
+    h, d = _sub_host(), direct_host()
+    return u.replace('//' + h, '//' + d, 1) if (u and h and d) else ''
+
+
+def sub_route_state():
+    st = load(SUBROUTE, {'mode': 'proxied', 'samples': [], 'last_switch': 0})
+    st.setdefault('mode', 'proxied')
+    return st
+
+
+def _sub_record():
+    h = _sub_host()
+    recs = _cf('GET', f'/zones/{ZONE}/dns_records?name={h}&type=A') if h else []
+    return recs[0] if recs else None
+
+
+def sub_route_set(mode, reason):
+    """mode: 'direct' (grey cloud) or 'proxied' (orange cloud)."""
+    if mode not in ('direct', 'proxied'):
+        raise ValueError('mode')
+    rec = _sub_record()
+    if not rec:
+        raise RuntimeError('رکورد دامنهٔ اشتراک پیدا نشد')
+    prox = mode == 'proxied'
+    _cf('PUT', f"/zones/{ZONE}/dns_records/{rec['id']}",
+        {'type': 'A', 'name': rec['name'], 'content': rec['content'], 'ttl': 1 if prox else 60, 'proxied': prox})
+    with _lock:
+        st = sub_route_state()
+        st.update(mode=mode, last_switch=time.time(), samples=[], reason=reason)
+        save(SUBROUTE, st)
+    add_event('subroute', ('دامنهٔ اشتراک مستقیم شد (بدون کلادفلر): ' if mode == 'direct' else
+                           'دامنهٔ اشتراک دوباره پشت کلادفلر رفت: ') + reason, None, 'warn', True)
+    return {'ok': True, 'mode': mode}
+
+
+def sub_route_observe(p):
+    """p = {via_ok, via_n, direct_ok, direct_n}: attempts from the phone, on the mobile/wifi network, VPN bypassed."""
+    now = time.time()
+    try:
+        s = {'ts': now, 'via_ok': int(p.get('via_ok', 0)), 'via_n': int(p.get('via_n', 0)),
+             'direct_ok': int(p.get('direct_ok', 0)), 'direct_n': int(p.get('direct_n', 0))}
+    except Exception:
+        return {'ok': False}
+    with _lock:
+        st = sub_route_state()
+        st['samples'] = [x for x in st.get('samples', []) if now - x['ts'] < SUBROUTE_WINDOW][-40:] + [s]
+        save(SUBROUTE, st)
+    smp = st['samples']
+    vn = sum(x['via_n'] for x in smp)
+    dn = sum(x['direct_n'] for x in smp)
+    out = {'mode': st['mode'], 'samples': len(smp), 'switched': None}
+    if vn < 6 or dn < 6 or now - st.get('last_switch', 0) < SUBROUTE_COOLDOWN:
+        return out
+    via_fail = 1 - sum(x['via_ok'] for x in smp) / vn
+    dir_fail = 1 - sum(x['direct_ok'] for x in smp) / dn
+    out.update(via_fail=round(via_fail, 2), direct_fail=round(dir_fail, 2))
+    try:
+        if st['mode'] == 'proxied' and via_fail >= 0.25 and dir_fail <= 0.25:
+            sub_route_set('direct', f'مسیر کلادفلر {int(via_fail * 100)}٪ خطا داشت و مسیر مستقیم سالم بود')
+            out['switched'] = 'direct'
+        elif st['mode'] == 'direct' and dir_fail >= 0.5:
+            sub_route_set('proxied', f'مسیر مستقیم {int(dir_fail * 100)}٪ خطا داشت')
+            out['switched'] = 'proxied'
+    except Exception as e:  # noqa: BLE001
+        out['error'] = str(e)[:120]
+    return out
+
+
+def sub_route_status():
+    st = sub_route_state()
+    smp = st.get('samples', [])
+    vn = sum(x['via_n'] for x in smp)
+    dn = sum(x['direct_n'] for x in smp)
+    return {'mode': st['mode'], 'samples': len(smp), 'last_switch': st.get('last_switch', 0), 'reason': st.get('reason', ''),
+            'via_fail': round(1 - sum(x['via_ok'] for x in smp) / vn, 2) if vn else None,
+            'direct_fail': round(1 - sum(x['direct_ok'] for x in smp) / dn, 2) if dn else None,
+            'sub_host': _sub_host(), 'direct_host': direct_host()}

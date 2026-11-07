@@ -8,7 +8,7 @@ import sqlite3, json, shutil, subprocess, sys, time, os, urllib.request, urllib.
 DB='/etc/x-ui/x-ui.db'; STATE='/var/lib/reality-watchdog.json'; LOG='/var/log/reality-watchdog.log'
 CAND=['www.microsoft.com','www.cloudflare.com','www.apple.com','www.intel.com','www.cisco.com',
       'www.asus.com','www.digikala.com','www.logitech.com','www.dell.com','www.lenovo.com']
-STATUS='/var/lib/vpn-status.json'; ENV='/etc/reality-watchdog.env'
+STATUS='/var/lib/vpn-status.json'; ENV='/etc/reality-watchdog.env'; ROTATED='/var/lib/hamid-rotated'
 DRY='--dry' in sys.argv
 FORCE='--rotate' in sys.argv
 FAKE_DEAD=set(a.split('=',1)[1] for a in sys.argv if a.startswith('--dead='))
@@ -75,6 +75,8 @@ for iid,port,j in rows:
     st[key]=0; changed=True
 if changed and not DRY:
     c.commit(); subprocess.run(['systemctl','restart','x-ui']); log('x-ui restarted')
+    # The group is told only after a phone confirms from Iran (hamid-api.py reads this marker).
+    open(ROTATED,'w').write(str(time.time()))
 cert=sh('openssl','x509','-enddate','-noout','-in','/root/cert/fullchain.pem').replace('notAfter=','')
 try: cert_days=(datetime.datetime.strptime(cert,'%b %d %H:%M:%S %Y %Z')-datetime.datetime.utcnow()).days
 except Exception: cert_days=None
